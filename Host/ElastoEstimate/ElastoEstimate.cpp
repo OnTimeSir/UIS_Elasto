@@ -69,14 +69,15 @@ void CalcInitDisp(const short*  pRfFrm1, const short*  pRfFrm2, unsigned int  nE
 	//分配内存
 	float* pCostFunc = (float*) malloc(nAxiDispCnt * nLatDispCnt * MAX_RF_POINTS_NUMBER * sizeof(float));
 	memset(pCostFunc, FLT_MAX, nAxiDispCnt * nLatDispCnt * MAX_RF_POINTS_NUMBER * sizeof(float));
+	unsigned int* pDelta = (unsigned int*)malloc(nAxiDispCnt * nLatDispCnt * sizeof(unsigned int)); //余项
+	memset(pDelta, 0, nAxiDispCnt * nLatDispCnt * sizeof(unsigned int));
+	unsigned int* pRjTerm = (unsigned int*)malloc(nAxiDispCnt * nLatDispCnt * sizeof(unsigned int)); //正则项
+	memset(pRjTerm, 0, nAxiDispCnt * nLatDispCnt * sizeof(unsigned int));
 
 	short* pSourceLine = (short*)pRfFrm1 + nSeedLineNo * MAX_RF_POINTS_NUMBER;//被匹配线
 	short* pDestLine = NULL;//匹配线
-	float* pCostFuncPt = pCostFunc;   //当前点的Cost矩阵
-	float fCostFuncMinPre = FLT_MAX;  //前一个点的最小Cost值
-	unsigned int nDelta = 0;          //余项
-	unsigned int nRjTerm = 0;         //正则项
-
+	float* pCostFuncPtCur = pCostFunc;//当前点的Cost矩阵
+	float* pCostFuncPtPre = pCostFunc;//前一个点的Cost矩阵
 	int nPtOffset = 0;
 //1. 按顺序计算Cost Function C(da,dl,i) ,i=0,1,...,nEndPtNo
 	//i=0的Cost Function即为余项值
@@ -90,19 +91,18 @@ void CalcInitDisp(const short*  pRfFrm1, const short*  pRfFrm2, unsigned int  nE
 			if (nPtOffset>=0 && nPtOffset<MAX_RF_POINTS_NUMBER-1)
 			{
 				nDelta = abs((*pSourceLine) - (*(pDestLine + nPtOffset)));
-				*pCostFuncPt = float(nDelta/ NOMALIZED_PARAM);
+				*pCostFuncPtCur = float(nDelta/ NOMALIZED_PARAM);
 			}
-			pCostFuncPt++;
+			pCostFuncPtCur++;
 		}
 	}
-	ippiMin_32f_C1R((const Ipp32f*)pCostFuncPt, sizeof(float)*nAxiDispCnt, IppiSize({ nLatDispCnt , nAxiDispCnt }), (Ipp32f*)(&fCostFuncMinPre));
 	//依次求i=1：nEndPtNo的Cost Function
 	for (int nPtNo = 1; nPtNo <= nEndPtNo; nPtNo++)
 	{
-		pCostFuncPt = pCostFunc + nPtNo * nAxiDispCnt * nLatDispCnt;
+		pCostFuncPtCur = pCostFunc + nPtNo * nAxiDispCnt * nLatDispCnt;
 		nPtOffset = 0;
-		nDelta = 0;
-		nRjTerm = 0;
+		memset(pDelta, 0, nAxiDispCnt * nLatDispCnt * sizeof(unsigned int));
+		memset(pRjTerm, 0, nAxiDispCnt * nLatDispCnt * sizeof(unsigned int));
 		for (int nLatDispIdx = nLatDispMin; nLatDispIdx <= nLatDispMax; nLatDispIdx++)
 		{
 			pDestLine = (short*)pRfFrm2 + (nSeedLineNo + nLatDispIdx) * MAX_RF_POINTS_NUMBER;
@@ -112,20 +112,13 @@ void CalcInitDisp(const short*  pRfFrm1, const short*  pRfFrm2, unsigned int  nE
 				//确保在数据范围内
 				if (nPtOffset >= 0 && nPtOffset<MAX_RF_POINTS_NUMBER)
 				{
-					nDelta = abs((*pSourceLine) - (*(pDestLine + nPtOffset)));
-					for (int j = nLatDispMin; j <= nLatDispMax; j++)
-					{
-						for (int i = nAxiDispMin; i <= nAxiDispMax; i++)
-						{
-							nRjTerm = (nAxisDispIdx - i)*(nAxisDispIdx - i) + (nLatDispIdx - j)*(nLatDispIdx - j);
-							*pCostFuncPt = fCostFuncMinPre + nDPWeight*(float)nRjTerm + float(nDelta / NOMALIZED_PARAM);
-						}
-					}
+					nDelta = abs((*pSourceLine+ nPtNo) - (*(pDestLine + nPtOffset+ nPtNo)));
+					nRjTerm = (nAxisDispIdx - 1)*(nAxisDispIdx - 1) + (nLatDispIdx - 1)*(nLatDispIdx - 1);
+					*pCostFuncPtCur =  nDPWeight*(float)nRjTerm + float(nDelta / NOMALIZED_PARAM);
 				}
-				pCostFuncPt++;
+				pCostFuncPtCur++;
 			}
 		}
-		ippiMin_32f_C1R((const Ipp32f* )pCostFuncPt, sizeof(float)*nAxiDispCnt, IppiSize({ nLatDispCnt , nAxiDispCnt }), (Ipp32f*)(&fCostFuncMinPre));
 	}
 
 //2.倒序求位移估计值，i=nEndPtNo,nEndPtNo-1,...,0
@@ -133,21 +126,26 @@ void CalcInitDisp(const short*  pRfFrm1, const short*  pRfFrm2, unsigned int  nE
 	Ipp32f* pMin = NULL;
 	int nIndexA;
 	int nIndexL;
-	pCostFuncPt = pCostFunc + (nEndPtNo - 1) * nAxiDispCnt * nLatDispCnt;
-	ippiMinIndx_32f_C1R((const Ipp32f*)pCostFuncPt, sizeof(float)*nAxiDispCnt, IppiSize({ nLatDispCnt , nAxiDispCnt}), pMin, &nIndexL, &nIndexA);
+	pCostFuncPtCur = pCostFunc + (nEndPtNo - 1) * nAxiDispCnt * nLatDispCnt;
+	ippiMinIndx_32f_C1R((const Ipp32f*)pCostFuncPtCur, sizeof(float)*nAxiDispCnt, IppiSize({ nLatDispCnt , nAxiDispCnt}), pMin, &nIndexL, &nIndexA);
 	pAxisInitDisp[nEndPtNo] = short(nIndexA) + nAxiDispMin;
 	pLateralInitDisp[nEndPtNo] = short(nIndexL) + nLatDispMin;
 	//i点的位移为i+1点位移附近3*3范围内当前点Cost Function最小值的对应坐标
 	int nOffset = 0;
 	for (int nPtNo = nEndPtNo - 1; nPtNo >= 0; nPtNo--)
 	{
-		pCostFuncPt = pCostFunc + (nPtNo - 1) * nAxiDispCnt * nLatDispCnt;
+		pCostFuncPtCur = pCostFunc + (nPtNo - 1) * nAxiDispCnt * nLatDispCnt;
 		nOffset = (pLateralInitDisp[nPtNo + 1] - nLatDispMin - 1)*nLatDispCnt + (pAxisInitDisp[nPtNo + 1] - nAxiDispMin - 1)*nAxiDispCnt;
-		ippiMinIndx_32f_C1R((const Ipp32f*)(pCostFuncPt+ nOffset), sizeof(float)*nAxiDispCnt, IppiSize({ 3 , 3 }), pMin, &nIndexL, &nIndexA);
+		ippiMinIndx_32f_C1R((const Ipp32f*)(pCostFuncPtCur+ nOffset), sizeof(float)*nAxiDispCnt, IppiSize({ 3 , 3 }), pMin, &nIndexL, &nIndexA);
 		pAxisInitDisp[nEndPtNo] = pAxisInitDisp[nEndPtNo+1]+ (short)nIndexA + 1;
 		pLateralInitDisp[nEndPtNo] = pLateralInitDisp[nEndPtNo+1]+ (short)nIndexL + 1;
 	}
+
 	//释放内存
 	free(pCostFunc);
 	pCostFunc = NULL;
+	free(pDelta);
+	pDelta = NULL;
+	free(pRjTerm);
+	pRjTerm = NULL;
 }
