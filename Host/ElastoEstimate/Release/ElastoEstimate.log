@@ -1,0 +1,13 @@
+﻿C:\Program Files (x86)\Microsoft Visual Studio\2017\Professional\Common7\IDE\VC\VCTargets\Microsoft.CppBuild.targets(373,5): warning MSB8004: Output 目录未以斜杠结尾。  此生成实例将添加斜杠，因为必须有这个斜杠才能正确计算 Output 目录。
+  stdafx.cpp
+  dllmain.cpp
+  ElastoEstimate.cpp
+ElastoEstimate.cpp(70): warning C4244: “参数”: 从“float”转换到“int”，可能丢失数据
+ElastoEstimate.cpp(70): warning C4056: 浮点常量算术溢出
+ElastoEstimate.cpp(99): warning C4018: “<=”: 有符号/无符号不匹配
+    正在创建库 ..\..\bin\ElastoEstimate.lib 和对象 ..\..\bin\ElastoEstimate.exp
+  正在生成代码
+  All 3 functions were compiled because no usable IPDB/IOBJ from previous compilation was found.
+  已完成代码的生成
+  ElastoEstimate.vcxproj -> D:\Elastography\UIS_Elasto\Host\ElastoEstimate\..\..\bin\ElastoEstimate.dll
+  ElastoEstimate.vcxproj -> ..\..\bin\ElastoEstimate.pdb (Full PDB)
