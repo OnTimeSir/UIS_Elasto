@@ -13,7 +13,7 @@
 #define MAX_RF_LINES_NUMBER		    512
 #define MAX_RF_POINTS_NUMBER	    2048
 #define MID_LINE_NUMBER             255
-#define NOMALIZED_PARAM             1.0f/8192
+#define NOMALIZED_PARAM             1.0f/32767
 
 //弹性计算相关参数
 #define MAX_AXIS_DISPARITY          100
@@ -87,9 +87,10 @@ void CalcInitDisp(const short*  pRfFrm1, const short*  pRfFrm2, unsigned int  nE
 	ippiAbs_16s_C1IR((Ipp16s*)pDelta, nAxiDispCnt * sizeof(short), { nAxiDispCnt ,nLatDispCnt });
 	for (int i = 0; i < nAxiDispCnt * nLatDispCnt; i++)
 	{
-		pCostFuncPtCur[i] = float(pDelta[i]) * NOMALIZED_PARAM;
+		pCostFuncPtCur[i] = float(pDelta[i]);
 	}
-	//依次求i=1：nEndPtNo的Cost Function
+	ippiMulC_32f_C1IR(NOMALIZED_PARAM, (Ipp32f*)pCostFuncPtCur, nAxiDispCnt, {nAxiDispCnt ,nLatDispCnt});
+	  //依次求i=1：nEndPtNo的Cost Function
 	for (int nPtNo = 1; nPtNo <= nEndPtNo; nPtNo++)
 	{
 		pCostFuncPtCur = pCostFunc + nPtNo * nAxiDispCnt * nLatDispCnt;
@@ -99,41 +100,44 @@ void CalcInitDisp(const short*  pRfFrm1, const short*  pRfFrm2, unsigned int  nE
 		ippiSubC_16s_C1RSfs((const Ipp16s*)(pDestLine + nPtNo), nAxiDispCnt * sizeof(short), (Ipp16s)pSourceLine[nPtNo],
 			(Ipp16s*)(pDelta + nPtOffset), nAxiDispCnt * sizeof(short), { nAxiDispCnt - nPtOffset,nLatDispCnt }, 0);
 		ippiAbs_16s_C1IR((Ipp16s*)pDelta, nAxiDispCnt * sizeof(short), { nAxiDispCnt ,nLatDispCnt });
+
+
 		for (int i = 0; i < nAxiDispCnt * nLatDispCnt; i++)
 		{
-			pCostFuncPtCur[i] = float(pDelta[i])*NOMALIZED_PARAM;
+			pCostFuncPtCur[i] = float(pDelta[i]);
 		}
+		ippiMulC_32f_C1IR(NOMALIZED_PARAM, (Ipp32f*)pCostFuncPtCur, nAxiDispCnt, { nAxiDispCnt ,nLatDispCnt });
 
 		//nDelta = abs((*pSourceLine+ nPtNo) - (*(pDestLine + nPtOffset+ nPtNo)));
 		//nRjTerm = (nAxisDispIdx - 1)*(nAxisDispIdx - 1) + (nLatDispIdx - 1)*(nLatDispIdx - 1);
 		//*pCostFuncPtCur =  nDPWeight*(float)nRjTerm + float(nDelta / NOMALIZED_PARAM);
-
+		pCostFuncPtPre = pCostFuncPtCur;
+	}
 //2.倒序求位移估计值，i=nEndPtNo,nEndPtNo-1,...,0
 	//Cost Function最小值点的对应坐标为i=nEndPtNo点的位移
-		Ipp32f* pMin = NULL;
-		int nIndexA;
-		int nIndexL;
-		pCostFuncPtCur = pCostFunc + (nEndPtNo - 1) * nAxiDispCnt * nLatDispCnt;
-		ippiMinIndx_32f_C1R((const Ipp32f*)pCostFuncPtCur, sizeof(float)*nAxiDispCnt, IppiSize({ nLatDispCnt , nAxiDispCnt }), pMin, &nIndexL, &nIndexA);
-		pAxisInitDisp[nEndPtNo] = short(nIndexA) + nAxiDispMin;
-		pLateralInitDisp[nEndPtNo] = short(nIndexL) + nLatDispMin;
-		//i点的位移为i+1点位移附近3*3范围内当前点Cost Function最小值的对应坐标
-		int nOffset = 0;
-		for (int nPtNo = nEndPtNo - 1; nPtNo >= 0; nPtNo--)
-		{
-			pCostFuncPtCur = pCostFunc + (nPtNo - 1) * nAxiDispCnt * nLatDispCnt;
-			nOffset = (pLateralInitDisp[nPtNo + 1] - nLatDispMin - 1)*nLatDispCnt + (pAxisInitDisp[nPtNo + 1] - nAxiDispMin - 1)*nAxiDispCnt;
-			ippiMinIndx_32f_C1R((const Ipp32f*)(pCostFuncPtCur + nOffset), sizeof(float)*nAxiDispCnt, IppiSize({ 3 , 3 }), pMin, &nIndexL, &nIndexA);
-			pAxisInitDisp[nEndPtNo] = pAxisInitDisp[nEndPtNo + 1] + (short)nIndexA + 1;
-			pLateralInitDisp[nEndPtNo] = pLateralInitDisp[nEndPtNo + 1] + (short)nIndexL + 1;
-		}
-
-		//释放内存
-		free(pCostFunc);
-		pCostFunc = NULL;
-		free(pDelta);
-		pDelta = NULL;
-		free(pRjTerm);
-		pRjTerm = NULL;
+	Ipp32f* pMin = NULL;
+	int nIndexA;
+	int nIndexL;
+	pCostFuncPtCur = pCostFunc + (nEndPtNo - 1) * nAxiDispCnt * nLatDispCnt;
+	ippiMinIndx_32f_C1R((const Ipp32f*)pCostFuncPtCur, sizeof(float)*nAxiDispCnt, IppiSize({ nLatDispCnt , nAxiDispCnt }), pMin, &nIndexL, &nIndexA);
+	pAxisInitDisp[nEndPtNo] = short(nIndexA) + nAxiDispMin;
+	pLateralInitDisp[nEndPtNo] = short(nIndexL) + nLatDispMin;
+	//i点的位移为i+1点位移附近3*3范围内当前点Cost Function最小值的对应坐标
+	int nOffset = 0;
+	for (int nPtNo = nEndPtNo - 1; nPtNo >= 0; nPtNo--)
+	{
+		pCostFuncPtCur = pCostFunc + (nPtNo - 1) * nAxiDispCnt * nLatDispCnt;
+		nOffset = (pLateralInitDisp[nPtNo + 1] - nLatDispMin - 1)*nLatDispCnt + (pAxisInitDisp[nPtNo + 1] - nAxiDispMin - 1)*nAxiDispCnt;
+		ippiMinIndx_32f_C1R((const Ipp32f*)(pCostFuncPtCur + nOffset), sizeof(float)*nAxiDispCnt, IppiSize({ 3 , 3 }), pMin, &nIndexL, &nIndexA);
+		pAxisInitDisp[nEndPtNo] = pAxisInitDisp[nEndPtNo + 1] + (short)nIndexA + 1;
+		pLateralInitDisp[nEndPtNo] = pLateralInitDisp[nEndPtNo + 1] + (short)nIndexL + 1;
 	}
+
+	//释放内存
+	free(pCostFunc);
+	pCostFunc = NULL;
+	free(pDelta);
+	pDelta = NULL;
+	free(pRjTerm);
+	pRjTerm = NULL;
 }
